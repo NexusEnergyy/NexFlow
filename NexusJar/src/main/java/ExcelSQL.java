@@ -8,7 +8,7 @@ import software.amazon.awssdk.services.s3.S3Client;
 public class ExcelSQL {
     private static final int LINHAS_POR_EXECUCAO = 100;
     private static final String CONTADOR_ARQUIVO = "contador.txt"; // Onde sera armazenado a ultima linha lida pelo for
-    private static final String BUCKET_NAME = "bucketnexus"; // Nome do bucket
+    private static final String BUCKET_NAME = "nexusenergybucket"; // Nome do bucket
     private static final String FILE_KEY = "DadosConsumo.xlsx";    // Nome do arquivo no bucket
 
     public static void main(String[] args) {

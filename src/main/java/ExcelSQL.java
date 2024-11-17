@@ -13,11 +13,14 @@ import nex_data.DataOperations;
 // Other imports:
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
-import software.amazon.awssdk.services.s3.model.GetObjectRequest;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import software.amazon.awssdk.services.s3.S3Client;
 
 
+
 public class ExcelSQL {
+    private static final Logger logger = LoggerFactory.getLogger(ExcelSQL.class);
     private static final int LINHAS_POR_EXECUCAO = 100;
     private static final String BUCKET_NAME = "nexusenergybucket"; // Nome do bucket
     private static final String FILE_KEY = "DadosConsumo.xlsx";    // Nome do arquivo no bucket
@@ -27,7 +30,7 @@ public class ExcelSQL {
         // Database Environment Variables:
         String dataBase = System.getenv("DB_DATABASE");
         String hostMySQL = System.getenv("DB_HOST");
-        String urlMySQL = "jdbc:mysql://%s:3306/%s".formatted(hostMySQL,dataBase);
+        String urlMySQL = "jdbc:mysql://%s:3306/%s".formatted(hostMySQL, dataBase);
         String usuario = System.getenv("DB_USER");
         String senha = System.getenv("DB_PASSWORD");
 
@@ -42,6 +45,17 @@ public class ExcelSQL {
 
 
         try (Connection conexao = DriverManager.getConnection(urlMySQL, usuario, senha)) {
+            logger.info("Conexão com o banco de dados estabelecida.");
+            processarArquivosExcel(conexao, s3Client, dataFormatada);
+            logger.info("[{}] SUCESSO - Dados inseridos com êxito!", dataFormatada);
+        } catch (SQLException e) {
+            logger.error("[{}] FALHA - Erro de SQL: {}", dataFormatada, e.getMessage());
+        } catch (IOException e) {
+            logger.error("[{}] FALHA - Erro de I/O: {}", dataFormatada, e.getMessage());
+        }
+    }
+
+    private static void processarArquivosExcel(Connection conexao, S3Client s3Client, String dataFormatada) throws IOException, SQLException {
             System.out.println("Conexão com o banco de dados estabelecida.");
             System.out.println("Iniciando leitura do arquivo Excel.");
 
@@ -147,9 +161,6 @@ public class ExcelSQL {
             Counter.atualizarContador(ultimaLinhaLida + LINHAS_POR_EXECUCAO);
             planilha.close();
             System.out.println("[" + dataFormatada + "] SUCESSO - Dados inseridos com êxito!");
-        } catch (Exception e) {
-            e.printStackTrace();
-            System.out.println("[" + dataFormatada + "] FALHA - Houve um erro ao inserir os dados.");
-        }
     }
+
 }

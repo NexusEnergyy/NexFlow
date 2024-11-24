@@ -34,6 +34,12 @@ public class ExcelSQL {
         String usuario = System.getenv("DB_USER");
         String senha = System.getenv("DB_PASSWORD");
 
+//        String dataBase = System.getenv("DB_DATABASE");
+//        String hostMySQL = System.getenv("DB_HOST");
+//        String urlMySQL = "jdbc:mysql://%s:3306/%s".formatted(hostMySQL, dataBase);
+//        String usuario = System.getenv("DB_USER");
+//        String senha = System.getenv("DB_PASSWORD");
+
         // Instanciando o aws_connection.S3Provider
         S3Provider s3Provider = new S3Provider();
         S3Client s3Client = s3Provider.getS3Client();

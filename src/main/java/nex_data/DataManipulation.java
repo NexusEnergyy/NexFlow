@@ -2,21 +2,22 @@ package nex_data;
 
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.DateUtil;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 
 public class DataManipulation extends DataOperations {
 
-    public double[] calcularConsumoHorario(double consumoMensal) {
-        double[] consumoHorario = new double[24];
-        double fatorSazonalidade = 1.1;
-        double consumoDiario = consumoMensal / 30;
-        for (int h = 0; h < 24; h++) {
-            if (h >= 18 && h <= 22) {
-                consumoHorario[h] = (consumoDiario / 24) * fatorSazonalidade;
-            } else {
-                consumoHorario[h] = consumoDiario / 24;
-            }
+    public static LocalDate converterYYYYMMParaDate(String mesReferencia) {
+        try {
+            String dataFormatada = mesReferencia + "01";
+            DateTimeFormatter formatadorEntrada = DateTimeFormatter.ofPattern("yyyyMMdd");
+
+            return LocalDate.parse(dataFormatada, formatadorEntrada);
+        } catch (DateTimeParseException | IllegalArgumentException e) {
+            System.err.println("Erro ao converter a data: " + mesReferencia + " - " + e.getMessage());
+            return null;
         }
-        return consumoHorario;
     }
 
     public static double getCellValueAsDouble(Cell cell) {

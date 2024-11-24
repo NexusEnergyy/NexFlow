@@ -1,7 +1,10 @@
 // Java imports:
 import java.io.*;
 import java.sql.*;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 
 // Nexus's imports:
@@ -17,22 +20,19 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import software.amazon.awssdk.services.s3.S3Client;
 
-
-
 public class ExcelSQL {
     private static final Logger logger = LoggerFactory.getLogger(ExcelSQL.class);
     private static final int LINHAS_POR_EXECUCAO = 100;
     private static final String BUCKET_NAME = "nexusenergybucket"; // Nome do bucket
     private static final String FILE_KEY = "DadosConsumo.xlsx";    // Nome do arquivo no bucket
 
-
     public static void main(String[] args) {
         // Database Environment Variables:
-        String dataBase = System.getenv("DB_DATABASE");
-        String hostMySQL = System.getenv("DB_HOST");
+        String dataBase = "nexusEnergy";
+        String hostMySQL = "localhost";
         String urlMySQL = "jdbc:mysql://%s:3306/%s".formatted(hostMySQL, dataBase);
-        String usuario = System.getenv("DB_USER");
-        String senha = System.getenv("DB_PASSWORD");
+        String usuario = "root";
+        String senha = "Abf191005";
 
 //        String dataBase = System.getenv("DB_DATABASE");
 //        String hostMySQL = System.getenv("DB_HOST");
@@ -44,26 +44,29 @@ public class ExcelSQL {
         S3Provider s3Provider = new S3Provider();
         S3Client s3Client = s3Provider.getS3Client();
 
-
         LocalDateTime dataAtual = LocalDateTime.now();
+        ZoneId fusoHorarioBrasilia = ZoneId.of("America/Sao_Paulo");
+        ZonedDateTime dataBrasilia = dataAtual.atZone(ZoneId.systemDefault()).withZoneSameInstant(fusoHorarioBrasilia);
         DateTimeFormatter formatador = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss");
-        String dataFormatada = dataAtual.format(formatador); // Data e Hora Atual
-
+        String dataFormatada = dataBrasilia.format(formatador); // Data e Hora Formatada em Horario de Brasilia
 
         try (Connection conexao = DriverManager.getConnection(urlMySQL, usuario, senha)) {
+            System.out.println(" ");
             logger.info("Conexão com o banco de dados estabelecida.");
+            logger.info("Iniciando leitura do arquivo Excel.");
             processarArquivosExcel(conexao, s3Client, dataFormatada);
+            System.out.println(" ");
             logger.info("[{}] SUCESSO - Dados inseridos com êxito!", dataFormatada);
         } catch (SQLException e) {
+            System.out.println(" ");
             logger.error("[{}] FALHA - Erro de SQL: {}", dataFormatada, e.getMessage());
         } catch (IOException e) {
+            System.out.println(" ");
             logger.error("[{}] FALHA - Erro de I/O: {}", dataFormatada, e.getMessage());
         }
     }
 
     private static void processarArquivosExcel(Connection conexao, S3Client s3Client, String dataFormatada) throws IOException, SQLException {
-            System.out.println("Conexão com o banco de dados estabelecida.");
-            System.out.println("Iniciando leitura do arquivo Excel.");
 
             // Baixando o arquivo do S3
             InputStream leitorExcel = S3Provider.baixarArquivoS3(s3Client, BUCKET_NAME, FILE_KEY);
@@ -73,8 +76,12 @@ public class ExcelSQL {
             // Continua da última linha inserida
             int ultimaLinhaLida = Counter.lerContador();
 
-            System.out.println("INFO - Iniciando a inserção de dados...");
-            System.out.println("Aguarde, Isso pode durar alguns segundos.");
+            System.out.println("Iniciando a inserção de dados.");
+            System.out.println("Aguarde, Isso pode durar alguns segundos...");
+            System.out.println(" ");
+
+            System.out.println("[" + dataFormatada + "] Inserção de Dados Iniciada");
+            System.out.println(" ");
 
             for (int i = ultimaLinhaLida + 1; i < ultimaLinhaLida + 1 + LINHAS_POR_EXECUCAO; i++) {
                 if (i > tabela.getLastRowNum()) {
@@ -82,7 +89,8 @@ public class ExcelSQL {
                     break;
                 }
                 Row linha = tabela.getRow(i);
-                System.out.println("INFO - Inserindo linha " + (i + 1) + " do arquivo Excel ao Banco de Dados");
+
+                System.out.println("INFO - Inserindo linha " + (i) + " do arquivo Excel ao Banco de Dados");
 
                 // Campos da Tabela Matriz
                 String nome = DataManipulation.getCellValueAsString(linha.getCell(1));
@@ -100,6 +108,19 @@ public class ExcelSQL {
                 Double consumo = DataManipulation.getCellValueAsDouble(linha.getCell(7));
                 Double emissaoCO2 = consumo * 81;
                 Integer qtdArvores = (int) Math.round(emissaoCO2 / 200);
+                LocalDate mesFormatado = DataManipulation.converterYYYYMMParaDate(mes);
+
+                int fkPorte = 0;
+                String queryPorte = "SELECT idParametro FROM Parametros WHERE (ativoMin <= ?) AND (ativoMax IS NULL OR ativoMax >= ?)";
+                try (PreparedStatement verificarPorte = conexao.prepareStatement(queryPorte)) {
+                    verificarPorte.setDouble(1, ativoTotal);
+                    verificarPorte.setDouble(2, ativoTotal);
+                    try (ResultSet rsPorte = verificarPorte.executeQuery()) {
+                        if (rsPorte.next()) {
+                            fkPorte = rsPorte.getInt("idParametro");
+                        }
+                    }
+                }
 
                 // Verifica se o CNPJ já existe na tabela Matriz para não inserir repitidas Matrizes
                 String queryVerificaMatriz = "SELECT idMatriz FROM Matriz WHERE CNPJ = ?";
@@ -125,6 +146,7 @@ public class ExcelSQL {
                         }
                     }
                 }
+
                 // Verifica se o nome da Filial e a cidade já existem na tabela Filial para não inserir repitidas Filiais
                 String queryVerificaFilial = "SELECT idFilial FROM Filial WHERE nome = ? AND cidade = ?";
                 int idFilial = 0;
@@ -136,13 +158,14 @@ public class ExcelSQL {
                         idFilial = rsFilial.getInt("idFilial");  // Já existe, obtém o idFilial
                     } else {
                         // Insere na tabela Filial, caso não exista
-                        String tabelaFilial = "INSERT INTO Filial (nome, cidade, UF, submercado, fkMatriz) VALUES (?, ?, ?, ?, ?)";
+                        String tabelaFilial = "INSERT INTO Filial (nome, cidade, UF, submercado, fkPorte, fkMatriz) VALUES (?, ?, ?, ?, ?, ?)";
                         try (PreparedStatement executarComandoFilial = conexao.prepareStatement(tabelaFilial, Statement.RETURN_GENERATED_KEYS)) {
                             executarComandoFilial.setString(1, nomeFilial);
                             executarComandoFilial.setString(2, cidade);
                             executarComandoFilial.setString(3, uf);
                             executarComandoFilial.setString(4, submercado);
-                            executarComandoFilial.setInt(5, idMatriz);
+                            executarComandoFilial.setInt(5, fkPorte);
+                            executarComandoFilial.setInt(6, idMatriz);
                             executarComandoFilial.executeUpdate();
 
                             ResultSet rsNovoFilial = executarComandoFilial.getGeneratedKeys();
@@ -156,7 +179,7 @@ public class ExcelSQL {
                 // Insere na tabela ConsumoDados
                 String tabelaConsumo = "INSERT INTO ConsumoDados (dataReferencia, consumoEnergia, emissaoCO2, qtdArvores, fkFilial) VALUES (?, ?, ?, ?, ?)";
                 try (PreparedStatement executarComandoConsumo = conexao.prepareStatement(tabelaConsumo)) {
-                    executarComandoConsumo.setString(1, mes);
+                    executarComandoConsumo.setDate(1, java.sql.Date.valueOf(mesFormatado));
                     executarComandoConsumo.setDouble(2, consumo);
                     executarComandoConsumo.setDouble(3, emissaoCO2);
                     executarComandoConsumo.setInt(4, qtdArvores);
@@ -166,7 +189,5 @@ public class ExcelSQL {
             }
             Counter.atualizarContador(ultimaLinhaLida + LINHAS_POR_EXECUCAO);
             planilha.close();
-            System.out.println("[" + dataFormatada + "] SUCESSO - Dados inseridos com êxito!");
     }
-
 }

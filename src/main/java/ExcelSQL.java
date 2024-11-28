@@ -16,24 +16,31 @@ import nex_data.DataOperations;
 // Other imports:
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import slack_connection.SlackNotification;
 import software.amazon.awssdk.services.s3.S3Client;
 
 public class ExcelSQL {
     private static final Logger logger = LoggerFactory.getLogger(ExcelSQL.class);
     private static final int LINHAS_POR_EXECUCAO = 100;
     private static final String BUCKET_NAME = "nexusenergybucket"; // Nome do bucket
-    private static final String FILE_KEY = "DadosConsumo.xlsx";    // Nome do arquivo no bucket
+    private static final String FILE_KEY = "DadosConsumo.xlsx";
+    private static int qtdMatrizes;
+    private static int qtdFiliais;
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws IOException,InterruptedException  {
         // Database Environment Variables:
+
+        // Local
         String dataBase = "nexusEnergy";
         String hostMySQL = "localhost";
         String urlMySQL = "jdbc:mysql://%s:3306/%s".formatted(hostMySQL, dataBase);
         String usuario = "root";
         String senha = "Abf191005";
 
+        // na EC2
 //        String dataBase = System.getenv("DB_DATABASE");
 //        String hostMySQL = System.getenv("DB_HOST");
 //        String urlMySQL = "jdbc:mysql://%s:3306/%s".formatted(hostMySQL, dataBase);
@@ -43,6 +50,7 @@ public class ExcelSQL {
         // Instanciando o aws_connection.S3Provider
         S3Provider s3Provider = new S3Provider();
         S3Client s3Client = s3Provider.getS3Client();
+        JSONObject json = new JSONObject();
 
         LocalDateTime dataAtual = LocalDateTime.now();
         ZoneId fusoHorarioBrasilia = ZoneId.of("America/Sao_Paulo");
@@ -57,12 +65,40 @@ public class ExcelSQL {
             processarArquivosExcel(conexao, s3Client, dataFormatada);
             System.out.println(" ");
             logger.info("[{}] SUCESSO - Dados inseridos com êxito!", dataFormatada);
+            json.put("text",
+                    "[" + dataFormatada + "] 🚀 Rotina de Inserção de Dados Finalizada com Sucesso!\n\n" +
+                            "📊 Resumo da Execução:\n" +
+                            "- Matrizes inseridas: " + qtdMatrizes + "\n" +
+                            "- Filiais inseridas: " + qtdFiliais + "\n" +
+                            "- Registros de consumo processados: Mais de 3000 dados\n\n" +
+                            "🌱 Impacto Ambiental Estimado:\n" +
+                            "- Emissão de CO² calculada e compensada com base nos dados.\n" +
+                            "- Conversão em árvores necessárias incluída.\n\n" +
+                            "✔️ Status: Todos os dados foram inseridos com sucesso no sistema. Até a próxima rotina!"
+            );
+            SlackNotification.enviarMensagem(json);
         } catch (SQLException e) {
             System.out.println(" ");
             logger.error("[{}] FALHA - Erro de SQL: {}", dataFormatada, e.getMessage());
+            json.put("text",
+                    "[" + dataFormatada + "] ⚠️ Erro na Rotina de Inserção de Dados\n\n" +
+                            "❌ Status: Falha na execução devido a um erro de SQL.\n" +
+                            "💡 Detalhes do Erro: `" + e.getMessage() + "`\n\n" +
+                            "🚧 Ação Recomendada: Verifique o script SQL e os dados de entrada para corrigir o problema.\n\n" +
+                            "⏹️ Resumo:\n" +
+                            "- Nenhum dado foi inserido no sistema.\n" +
+                            "- Rotina encerrada com erro.\n\n" +
+                            "📋 Nota: Acompanhe os logs do sistema para mais informações e reexecute após resolver o problema."
+            );
+            SlackNotification.enviarMensagem(json);
         } catch (IOException e) {
-            System.out.println(" ");
+            System.out.println("");
             logger.error("[{}] FALHA - Erro de I/O: {}", dataFormatada, e.getMessage());
+            json.put("text", "[" + dataFormatada + "] 🚨 Rotina de Inserção de Dados Finalizada com Falhas.\n" +
+                    "❌ Um erro de I/O foi identificado durante a execução da rotina.\n" +
+                    "Detalhes do erro: " + e.getMessage() + "\n" +
+                    "⏹️ Verifique os arquivos e a conexão para garantir o funcionamento correto na próxima execução.");
+            SlackNotification.enviarMensagem(json);
         }
     }
 
@@ -83,11 +119,7 @@ public class ExcelSQL {
             System.out.println("[" + dataFormatada + "] Inserção de Dados Iniciada");
             System.out.println(" ");
 
-            for (int i = ultimaLinhaLida + 1; i < ultimaLinhaLida + 1 + LINHAS_POR_EXECUCAO; i++) {
-                if (i > tabela.getLastRowNum()) {
-                    System.out.println("Não há mais linhas para processar.");
-                    break;
-                }
+            for (int i = 1; i <= tabela.getLastRowNum(); i++) {
                 Row linha = tabela.getRow(i);
 
                 System.out.println("INFO - Inserindo linha " + (i) + " do arquivo Excel ao Banco de Dados");
@@ -187,6 +219,26 @@ public class ExcelSQL {
                     executarComandoConsumo.executeUpdate();
                 }
             }
+
+        String queryQtdMatriz = "SELECT COUNT(idMatriz) AS qtdMatriz FROM Matriz";
+        String queryQtdFilial = "SELECT COUNT(idFilial) AS qtdFilial FROM Filial";
+
+        try (PreparedStatement stmtQtdMatriz = conexao.prepareStatement(queryQtdMatriz);
+             PreparedStatement stmtQtdFilial = conexao.prepareStatement(queryQtdFilial)) {
+
+            try (ResultSet rsMatriz = stmtQtdMatriz.executeQuery()) {
+                if (rsMatriz.next()) {
+                    qtdMatrizes = rsMatriz.getInt("qtdMatriz");
+                }
+            }
+            try (ResultSet rsFilial = stmtQtdFilial.executeQuery()) {
+                if (rsFilial.next()) {
+                    qtdFiliais = rsFilial.getInt("qtdFilial");
+                }
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
             Counter.atualizarContador(ultimaLinhaLida + LINHAS_POR_EXECUCAO);
             planilha.close();
     }

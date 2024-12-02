@@ -30,22 +30,13 @@ public class ExcelSQL {
     private static int qtdMatrizes;
     private static int qtdFiliais;
 
-    public static void main(String[] args) throws IOException,InterruptedException  {
+    public static void main(String[] args) throws IOException, InterruptedException {
         // Database Environment Variables:
-
-        // Local
-        String dataBase = "nexusEnergy";
-        String hostMySQL = "localhost";
+        String dataBase = System.getenv("DB_DATABASE");
+        String hostMySQL = System.getenv("DB_HOST");
         String urlMySQL = "jdbc:mysql://%s:3306/%s".formatted(hostMySQL, dataBase);
-        String usuario = "root";
-        String senha = "Vidanova-123";
-
-        // na EC2
-//        String dataBase = System.getenv("DB_DATABASE");
-//        String hostMySQL = System.getenv("DB_HOST");
-//        String urlMySQL = "jdbc:mysql://%s:3306/%s".formatted(hostMySQL, dataBase);
-//        String usuario = System.getenv("DB_USER");
-//        String senha = System.getenv("DB_PASSWORD");
+        String usuario = System.getenv("DB_USER");
+        String senha = System.getenv("DB_PASSWORD");
 
         // Instanciando o aws_connection.S3Provider
         S3Provider s3Provider = new S3Provider();
@@ -243,7 +234,7 @@ public class ExcelSQL {
                 }
             }
 
-            if( i <= 1069){
+            if (i <= 1069) {
                 double consumoMesAnterior = DataOperations.obterConsumoMesAnterior(conexao, mesFormatadoDateTime.minusMonths(1).toLocalDate(), idFilial);
                 double consumoDoisMesesAtras = DataOperations.obterConsumoMesAnterior(conexao, mesFormatadoDateTime.minusMonths(2).toLocalDate(), idFilial);
 
@@ -266,26 +257,51 @@ public class ExcelSQL {
             }
         }
 
-        String queryQtdMatriz = "SELECT COUNT(idMatriz) AS qtdMatriz FROM Matriz";
-        String queryQtdFilial = "SELECT COUNT(idFilial) AS qtdFilial FROM Filial";
-
-        try (PreparedStatement stmtQtdMatriz = conexao.prepareStatement(queryQtdMatriz);
-             PreparedStatement stmtQtdFilial = conexao.prepareStatement(queryQtdFilial)) {
-
-            try (ResultSet rsMatriz = stmtQtdMatriz.executeQuery()) {
-                if (rsMatriz.next()) {
-                    qtdMatrizes = rsMatriz.getInt("qtdMatriz");
-                }
-            }
-            try (ResultSet rsFilial = stmtQtdFilial.executeQuery()) {
-                if (rsFilial.next()) {
-                    qtdFiliais = rsFilial.getInt("qtdFilial");
-                }
-            }
+        String queryInserirUsuario = "INSERT INTO Usuario VALUES (?, ?, ?, ?, ?, ?, ?)";
+        try (PreparedStatement stmtInserirUsuario = conexao.prepareStatement(queryInserirUsuario)) {
+            stmtInserirUsuario.setString(1, "11187293868"); // CPF
+            stmtInserirUsuario.setString(2, "Carlos Miguel"); // Nome
+            stmtInserirUsuario.setString(3, "carlosM@gmail.com"); // Email
+            stmtInserirUsuario.setString(4, "a5947a636a73901ecff57e08c0057a9ee5795779243f1465d6bbb2f4916df05d"); // Senha criptografada
+            stmtInserirUsuario.setLong(5, 11949505111L);
+            stmtInserirUsuario.setInt(6, 2);
+            stmtInserirUsuario.setInt(7, 1);
+            stmtInserirUsuario.executeUpdate();
         } catch (SQLException e) {
-            e.printStackTrace();
+            logger.error("Erro ao inserir usuário padrão: {}", e.getMessage());
         }
-        Counter.atualizarContador(ultimaLinhaLida + LINHAS_POR_EXECUCAO);
-        planilha.close();
+        String queryInserirUsuario2 = "INSERT INTO Usuario VALUES (?, ?, ?, ?, ?, ?, ?)";
+        try (PreparedStatement stmtInserirUsuario2 = conexao.prepareStatement(queryInserirUsuario)) {
+            stmtInserirUsuario2.setString(1, "11187293858"); // CPF
+            stmtInserirUsuario2.setString(2, "Lucas Santos"); // Nome
+            stmtInserirUsuario2.setString(3, "lucasS@gmail.com"); // Email
+            stmtInserirUsuario2.setString(4, "a5947a636a73901ecff57e08c0057a9ee5795779243f1465d6bbb2f4916df05d"); // Senha criptografada
+            stmtInserirUsuario2.setLong(5, 11949905111L);
+            stmtInserirUsuario2.setInt(6, 4);
+            stmtInserirUsuario2.setInt(7, 1);
+            stmtInserirUsuario2.executeUpdate();
+
+            String queryQtdMatriz = "SELECT COUNT(idMatriz) AS qtdMatriz FROM Matriz";
+            String queryQtdFilial = "SELECT COUNT(idFilial) AS qtdFilial FROM Filial";
+
+            try (PreparedStatement stmtQtdMatriz = conexao.prepareStatement(queryQtdMatriz);
+                 PreparedStatement stmtQtdFilial = conexao.prepareStatement(queryQtdFilial)) {
+
+                try (ResultSet rsMatriz = stmtQtdMatriz.executeQuery()) {
+                    if (rsMatriz.next()) {
+                        qtdMatrizes = rsMatriz.getInt("qtdMatriz");
+                    }
+                }
+                try (ResultSet rsFilial = stmtQtdFilial.executeQuery()) {
+                    if (rsFilial.next()) {
+                        qtdFiliais = rsFilial.getInt("qtdFilial");
+                    }
+                }
+            } catch (SQLException e) {
+                e.printStackTrace();
+            }
+            Counter.atualizarContador(ultimaLinhaLida + LINHAS_POR_EXECUCAO);
+            planilha.close();
+        }
     }
 }

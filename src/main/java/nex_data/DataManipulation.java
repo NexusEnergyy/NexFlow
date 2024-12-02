@@ -61,4 +61,25 @@ public class DataManipulation extends DataOperations {
                 return "";
         }
     }
+
+    public static double[] calcularConsumoHorario(double consumoMensal) {
+        double consumoDiario = consumoMensal / 30;
+        double[] consumoHorario = new double[24];
+        double[] horariosEspecificos = {0, 3, 6, 9, 12, 15, 18, 21};
+        double variacao = consumoDiario / horariosEspecificos.length;
+
+        for (int i = 0; i < horariosEspecificos.length; i++) {
+            consumoHorario[(int) horariosEspecificos[i]] = variacao * (i + 1);
+        }
+
+        return consumoHorario;
+    }
+
+    public static double calcularPrevisaoConsumo(double consumoMesAnterior, double consumoDoisMesesAtras) {
+        double taxaCrescimento = (consumoMesAnterior - consumoDoisMesesAtras) / consumoDoisMesesAtras;
+        if (taxaCrescimento < 0) {
+            taxaCrescimento = 0;
+        }
+        return consumoMesAnterior * (1 + taxaCrescimento);
+    }
 }

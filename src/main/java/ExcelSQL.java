@@ -38,7 +38,7 @@ public class ExcelSQL {
         String hostMySQL = "localhost";
         String urlMySQL = "jdbc:mysql://%s:3306/%s".formatted(hostMySQL, dataBase);
         String usuario = "root";
-        String senha = "Abf191005";
+        String senha = "Vidanova-123";
 
         // na EC2
 //        String dataBase = System.getenv("DB_DATABASE");
@@ -103,122 +103,168 @@ public class ExcelSQL {
     }
 
     private static void processarArquivosExcel(Connection conexao, S3Client s3Client, String dataFormatada) throws IOException, SQLException {
+        // Baixando o arquivo do S3
+        InputStream leitorExcel = S3Provider.baixarArquivoS3(s3Client, BUCKET_NAME, FILE_KEY);
+        Workbook planilha = new XSSFWorkbook(leitorExcel);
+        Sheet tabela = planilha.getSheetAt(0);
 
-            // Baixando o arquivo do S3
-            InputStream leitorExcel = S3Provider.baixarArquivoS3(s3Client, BUCKET_NAME, FILE_KEY);
-            Workbook planilha = new XSSFWorkbook(leitorExcel);
-            Sheet tabela = planilha.getSheetAt(0);
+        // Continua da última linha inserida
+        int ultimaLinhaLida = Counter.lerContador();
 
-            // Continua da última linha inserida
-            int ultimaLinhaLida = Counter.lerContador();
+        System.out.println("Iniciando a inserção de dados.");
+        System.out.println("Aguarde, Isso pode durar alguns segundos...");
+        System.out.println(" ");
 
-            System.out.println("Iniciando a inserção de dados.");
-            System.out.println("Aguarde, Isso pode durar alguns segundos...");
-            System.out.println(" ");
+        System.out.println("[" + dataFormatada + "] Inserção de Dados Iniciada");
+        System.out.println(" ");
 
-            System.out.println("[" + dataFormatada + "] Inserção de Dados Iniciada");
-            System.out.println(" ");
+        // Primeiro, insere todos os dados do Excel no banco de dados
+        for (int i = 1; i <= tabela.getLastRowNum(); i++) {
+            Row linha = tabela.getRow(i);
 
-            for (int i = 1; i <= tabela.getLastRowNum(); i++) {
-                Row linha = tabela.getRow(i);
+            System.out.println("INFO - Inserindo linha " + (i) + " do arquivo Excel ao Banco de Dados");
 
-                System.out.println("INFO - Inserindo linha " + (i) + " do arquivo Excel ao Banco de Dados");
+            // Campos da Tabela Matriz
+            String nome = DataManipulation.getCellValueAsString(linha.getCell(1));
+            String cnpj = DataManipulation.getCellValueAsString(linha.getCell(3));
+            Double ativoTotal = DataManipulation.getCellValueAsDouble(linha.getCell(8));
 
-                // Campos da Tabela Matriz
-                String nome = DataManipulation.getCellValueAsString(linha.getCell(1));
-                String cnpj = DataManipulation.getCellValueAsString(linha.getCell(3));
-                Double ativoTotal = DataManipulation.getCellValueAsDouble(linha.getCell(8));
+            // Campos da Tabela Filial
+            String nomeFilial = DataManipulation.getCellValueAsString(linha.getCell(2));
+            String cidade = DataManipulation.getCellValueAsString(linha.getCell(4));
+            String uf = DataManipulation.getCellValueAsString(linha.getCell(5));
+            String submercado = DataManipulation.getCellValueAsString(linha.getCell(6));
 
-                // Campos da Tabela Filial
-                String nomeFilial = DataManipulation.getCellValueAsString(linha.getCell(2));
-                String cidade = DataManipulation.getCellValueAsString(linha.getCell(4));
-                String uf = DataManipulation.getCellValueAsString(linha.getCell(5));
-                String submercado = DataManipulation.getCellValueAsString(linha.getCell(6));
+            // Campos da Tabela ConsumoDados
+            String mes = DataManipulation.getCellValueAsString(linha.getCell(0));
+            Double consumo = DataManipulation.getCellValueAsDouble(linha.getCell(7));
+            Double emissaoCO2 = consumo * 81;
+            Integer qtdArvores = (int) Math.round(emissaoCO2 / 200);
+            LocalDate mesFormatado = DataManipulation.converterYYYYMMParaDate(mes);
 
-                // Campos da Tabela ConsumoDados
-                String mes = DataManipulation.getCellValueAsString(linha.getCell(0));
-                Double consumo = DataManipulation.getCellValueAsDouble(linha.getCell(7));
-                Double emissaoCO2 = consumo * 81;
-                Integer qtdArvores = (int) Math.round(emissaoCO2 / 200);
-                LocalDate mesFormatado = DataManipulation.converterYYYYMMParaDate(mes);
-
-                int fkPorte = 0;
-                String queryPorte = "SELECT idParametro FROM Parametros WHERE (ativoMin <= ?) AND (ativoMax IS NULL OR ativoMax >= ?)";
-                try (PreparedStatement verificarPorte = conexao.prepareStatement(queryPorte)) {
-                    verificarPorte.setDouble(1, ativoTotal);
-                    verificarPorte.setDouble(2, ativoTotal);
-                    try (ResultSet rsPorte = verificarPorte.executeQuery()) {
-                        if (rsPorte.next()) {
-                            fkPorte = rsPorte.getInt("idParametro");
-                        }
+            int fkPorte = 0;
+            String queryPorte = "SELECT idParametro FROM Parametros WHERE (ativoMin <= ?) AND (ativoMax IS NULL OR ativoMax >= ?)";
+            try (PreparedStatement verificarPorte = conexao.prepareStatement(queryPorte)) {
+                verificarPorte.setDouble(1, ativoTotal);
+                verificarPorte.setDouble(2, ativoTotal);
+                try (ResultSet rsPorte = verificarPorte.executeQuery()) {
+                    if (rsPorte.next()) {
+                        fkPorte = rsPorte.getInt("idParametro");
                     }
-                }
-
-                // Verifica se o CNPJ já existe na tabela Matriz para não inserir repitidas Matrizes
-                String queryVerificaMatriz = "SELECT idMatriz FROM Matriz WHERE CNPJ = ?";
-                int idMatriz = 0;
-                try (PreparedStatement verificarMatriz = conexao.prepareStatement(queryVerificaMatriz)) {
-                    verificarMatriz.setString(1, cnpj);
-                    ResultSet rsMatriz = verificarMatriz.executeQuery();
-                    if (rsMatriz.next()) {
-                        idMatriz = rsMatriz.getInt("idMatriz");  // Já existe, obtém o idMatriz
-                    } else {
-                        // Insere na tabela Matriz
-                        String tabelaMatriz = "INSERT INTO Matriz (nome, CNPJ, ativoTotal) VALUES (?, ?, ?)";
-                        try (PreparedStatement executarComandoEmpresa = conexao.prepareStatement(tabelaMatriz, Statement.RETURN_GENERATED_KEYS)) {
-                            executarComandoEmpresa.setString(1, nome);
-                            executarComandoEmpresa.setString(2, cnpj);
-                            executarComandoEmpresa.setDouble(3, ativoTotal);
-                            executarComandoEmpresa.executeUpdate();
-
-                            ResultSet rsNovoMatriz = executarComandoEmpresa.getGeneratedKeys();
-                            if (rsNovoMatriz.next()) {
-                                idMatriz = rsNovoMatriz.getInt(1);
-                            }
-                        }
-                    }
-                }
-
-                // Verifica se o nome da Filial e a cidade já existem na tabela Filial para não inserir repitidas Filiais
-                String queryVerificaFilial = "SELECT idFilial FROM Filial WHERE nome = ? AND cidade = ?";
-                int idFilial = 0;
-                try (PreparedStatement verificarFilial = conexao.prepareStatement(queryVerificaFilial)) {
-                    verificarFilial.setString(1, nomeFilial);
-                    verificarFilial.setString(2, cidade);
-                    ResultSet rsFilial = verificarFilial.executeQuery();
-                    if (rsFilial.next()) {
-                        idFilial = rsFilial.getInt("idFilial");  // Já existe, obtém o idFilial
-                    } else {
-                        // Insere na tabela Filial, caso não exista
-                        String tabelaFilial = "INSERT INTO Filial (nome, cidade, UF, submercado, fkPorte, fkMatriz) VALUES (?, ?, ?, ?, ?, ?)";
-                        try (PreparedStatement executarComandoFilial = conexao.prepareStatement(tabelaFilial, Statement.RETURN_GENERATED_KEYS)) {
-                            executarComandoFilial.setString(1, nomeFilial);
-                            executarComandoFilial.setString(2, cidade);
-                            executarComandoFilial.setString(3, uf);
-                            executarComandoFilial.setString(4, submercado);
-                            executarComandoFilial.setInt(5, fkPorte);
-                            executarComandoFilial.setInt(6, idMatriz);
-                            executarComandoFilial.executeUpdate();
-
-                            ResultSet rsNovoFilial = executarComandoFilial.getGeneratedKeys();
-                            if (rsNovoFilial.next()) {
-                                idFilial = rsNovoFilial.getInt(1);  // Obtém o idFilial gerado
-                            }
-                        }
-                    }
-                }
-
-                // Insere na tabela ConsumoDados
-                String tabelaConsumo = "INSERT INTO ConsumoDados (dataReferencia, consumoEnergia, emissaoCO2, qtdArvores, fkFilial) VALUES (?, ?, ?, ?, ?)";
-                try (PreparedStatement executarComandoConsumo = conexao.prepareStatement(tabelaConsumo)) {
-                    executarComandoConsumo.setDate(1, java.sql.Date.valueOf(mesFormatado));
-                    executarComandoConsumo.setDouble(2, consumo);
-                    executarComandoConsumo.setDouble(3, emissaoCO2);
-                    executarComandoConsumo.setInt(4, qtdArvores);
-                    executarComandoConsumo.setInt(5, idFilial);
-                    executarComandoConsumo.executeUpdate();
                 }
             }
+
+            // Verifica se o CNPJ já existe na tabela Matriz para não inserir repitidas Matrizes
+            String queryVerificaMatriz = "SELECT idMatriz FROM Matriz WHERE CNPJ = ?";
+            int idMatriz = 0;
+            try (PreparedStatement verificarMatriz = conexao.prepareStatement(queryVerificaMatriz)) {
+                verificarMatriz.setString(1, cnpj);
+                ResultSet rsMatriz = verificarMatriz.executeQuery();
+                if (rsMatriz.next()) {
+                    idMatriz = rsMatriz.getInt("idMatriz");  // Já existe, obtém o idMatriz
+                } else {
+                    // Insere na tabela Matriz
+                    String tabelaMatriz = "INSERT INTO Matriz (nome, CNPJ, ativoTotal) VALUES (?, ?, ?)";
+                    try (PreparedStatement executarComandoEmpresa = conexao.prepareStatement(tabelaMatriz, Statement.RETURN_GENERATED_KEYS)) {
+                        executarComandoEmpresa.setString(1, nome);
+                        executarComandoEmpresa.setString(2, cnpj);
+                        executarComandoEmpresa.setDouble(3, ativoTotal);
+                        executarComandoEmpresa.executeUpdate();
+
+                        ResultSet rsNovoMatriz = executarComandoEmpresa.getGeneratedKeys();
+                        if (rsNovoMatriz.next()) {
+                            idMatriz = rsNovoMatriz.getInt(1);
+                        }
+                    }
+                }
+            }
+
+            // Verifica se o nome da Filial e a cidade já existem na tabela Filial para não inserir repitidas Filiais
+            String queryVerificaFilial = "SELECT idFilial FROM Filial WHERE nome = ? AND cidade = ?";
+            int idFilial = 0;
+            try (PreparedStatement verificarFilial = conexao.prepareStatement(queryVerificaFilial)) {
+                verificarFilial.setString(1, nomeFilial);
+                verificarFilial.setString(2, cidade);
+                ResultSet rsFilial = verificarFilial.executeQuery();
+                if (rsFilial.next()) {
+                    idFilial = rsFilial.getInt("idFilial");  // Já existe, obtém o idFilial
+                } else {
+                    // Insere na tabela Filial, caso não exista
+                    String tabelaFilial = "INSERT INTO Filial (nome, cidade, UF, submercado, fkPorte, fkMatriz) VALUES (?, ?, ?, ?, ?, ?)";
+                    try (PreparedStatement executarComandoFilial = conexao.prepareStatement(tabelaFilial, Statement.RETURN_GENERATED_KEYS)) {
+                        executarComandoFilial.setString(1, nomeFilial);
+                        executarComandoFilial.setString(2, cidade);
+                        executarComandoFilial.setString(3, uf);
+                        executarComandoFilial.setString(4, submercado);
+                        executarComandoFilial.setInt(5, fkPorte);
+                        executarComandoFilial.setInt(6, idMatriz);
+                        executarComandoFilial.executeUpdate();
+
+                        ResultSet rsNovoFilial = executarComandoFilial.getGeneratedKeys();
+                        if (rsNovoFilial.next()) {
+                            idFilial = rsNovoFilial.getInt(1);  // Obtém o idFilial gerado
+                        }
+                    }
+                }
+            }
+
+            // Insere na tabela ConsumoDados
+            String tabelaConsumo = "INSERT INTO ConsumoDados (dataReferencia, consumoEnergia, emissaoCO2, qtdArvores, fkFilial) VALUES (?, ?, ?, ?, ?)";
+            try (PreparedStatement executarComandoConsumo = conexao.prepareStatement(tabelaConsumo)) {
+                executarComandoConsumo.setDate(1, java.sql.Date.valueOf(mesFormatado));
+                executarComandoConsumo.setDouble(2, consumo);
+                executarComandoConsumo.setDouble(3, emissaoCO2);
+                executarComandoConsumo.setInt(4, qtdArvores);
+                executarComandoConsumo.setInt(5, idFilial);
+                executarComandoConsumo.executeUpdate();
+            }
+        }
+
+        // Depois de inserir todos os dados, calcula e insere os dados previstos
+        for (int i = 1; i <= tabela.getLastRowNum(); i++) {
+            Row linha = tabela.getRow(i);
+
+            String mes = DataManipulation.getCellValueAsString(linha.getCell(0));
+            LocalDate mesFormatado = DataManipulation.converterYYYYMMParaDate(mes);
+            LocalDateTime mesFormatadoDateTime = mesFormatado.atStartOfDay();
+
+            String nomeFilial = DataManipulation.getCellValueAsString(linha.getCell(2));
+            String cidade = DataManipulation.getCellValueAsString(linha.getCell(4));
+
+            // Obtém o idFilial
+            String queryVerificaFilial = "SELECT idFilial FROM Filial WHERE nome = ? AND cidade = ?";
+            int idFilial = 0;
+            try (PreparedStatement verificarFilial = conexao.prepareStatement(queryVerificaFilial)) {
+                verificarFilial.setString(1, nomeFilial);
+                verificarFilial.setString(2, cidade);
+                ResultSet rsFilial = verificarFilial.executeQuery();
+                if (rsFilial.next()) {
+                    idFilial = rsFilial.getInt("idFilial");
+                }
+            }
+
+            if( i <= 1069){
+                double consumoMesAnterior = DataOperations.obterConsumoMesAnterior(conexao, mesFormatadoDateTime.minusMonths(1).toLocalDate(), idFilial);
+                double consumoDoisMesesAtras = DataOperations.obterConsumoMesAnterior(conexao, mesFormatadoDateTime.minusMonths(2).toLocalDate(), idFilial);
+
+
+                if (consumoMesAnterior == 0.0 || consumoDoisMesesAtras == 0.0) {
+                    System.out.println("Dados faltantes!: " + i);
+                } else {
+                    double consumoPrevisto = DataManipulation.calcularPrevisaoConsumo(consumoMesAnterior, consumoDoisMesesAtras);
+                    System.out.println("Inserindo dados previstos para " + mes + "...");
+                    // Prever os próximos 3 meses
+                    for (int j = 1; j <= 3; j++) {
+                        LocalDate mesFuturo = mesFormatadoDateTime.plusMonths(j).toLocalDate();
+                        double consumoPrevistoFuturo = DataManipulation.calcularPrevisaoConsumo(consumoPrevisto, consumoMesAnterior);
+                        DataOperations dataOperations = new DataOperations();
+                        dataOperations.inserirDadosPrevistos(conexao, mesFuturo, consumoPrevistoFuturo, idFilial);
+                        consumoMesAnterior = consumoPrevisto;
+                        consumoPrevisto = consumoPrevistoFuturo;
+                    }
+                }
+            }
+        }
 
         String queryQtdMatriz = "SELECT COUNT(idMatriz) AS qtdMatriz FROM Matriz";
         String queryQtdFilial = "SELECT COUNT(idFilial) AS qtdFilial FROM Filial";
@@ -239,7 +285,7 @@ public class ExcelSQL {
         } catch (SQLException e) {
             e.printStackTrace();
         }
-            Counter.atualizarContador(ultimaLinhaLida + LINHAS_POR_EXECUCAO);
-            planilha.close();
+        Counter.atualizarContador(ultimaLinhaLida + LINHAS_POR_EXECUCAO);
+        planilha.close();
     }
 }
